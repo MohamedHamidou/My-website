@@ -87,15 +87,33 @@ with NOPASSWD sudo for `deploy-site` alone.
 ```
 push to main
    │
-   ├─ validate · lint-css · link-check · accessibility   (GitHub-hosted runners)
-   │        └─ any failure blocks BOTH deploys
-   │
-   ├─▶ deploy-pages   (GitHub-hosted)  → uploads public/ to GitHub Pages
-   └─▶ deploy-server  (self-hosted)    → sudo deploy-site --release $GITHUB_SHA
-                                             → copies public/ to releases/<sha>
-                                             → atomically swaps the `current` symlink
-                                             → nginx -t && systemctl reload nginx
+   └─▶ CI  (GitHub-hosted runners)
+          validate · lint-css · link-check · accessibility
+                 │
+                 ├─▶ Deploy Pages   (GitHub-hosted)  → uploads public/ to GitHub Pages
+                 └─▶ Deploy Server  (self-hosted)    → sudo deploy-site --release <sha>
+                                                            → copies public/ to releases/<sha>
+                                                            → atomically swaps the `current` symlink
+                                                            → nginx -t && systemctl reload nginx
 ```
+
+The two deploy targets live in **separate workflow files** on purpose. GitHub
+allows only one running and one pending job per concurrency group, so a single
+workflow containing both targets would let a server deploy that is waiting for
+an offline self-hosted runner block the Pages deploy of newer commits.
+
+Both deploys are triggered by `workflow_run` on a successful CI run rather than
+by the push itself, so they are gated on the same four quality checks. The
+server deploy also re-checks that `main` has not moved on before publishing, so a
+stale queued run cannot roll the site back to an older commit.
+
+### Workflow files
+
+| File | Trigger | Runner | Target |
+|------|---------|--------|--------|
+| `.github/workflows/ci.yml` | PR + push to main | GitHub-hosted | quality gates only |
+| `.github/workflows/deploy-pages.yml` | successful CI on main | GitHub-hosted | GitHub Pages |
+| `.github/workflows/deploy-server.yml` | successful CI on main | self-hosted (laptop) | the laptop |
 
 ### Releasing manually
 
@@ -122,8 +140,9 @@ half-published site in front of users.
 | Path | Purpose |
 |------|---------|
 | `public/` | The publishable site. This is what nginx and GitHub Pages serve. |
-| `deploy/` | Server-side tooling: `install.sh`, `deploy-site`, `site-url`, nginx vhost, systemd unit. |
+| `deploy/` | Server-side tooling: `install.sh`, `deploy-site`, `site-url`, `register-runner.sh`, nginx vhost, systemd unit. |
 | `deploy/install.sh` | Idempotent bootstrap for the laptop. |
+| `deploy/register-runner.sh` | Installs and registers the self-hosted Actions runner. |
 | `deploy/deploy-site` | Release / rollback engine, installed at `/usr/local/sbin/deploy-site`. |
 | `skills/` | Agent skill definitions. **Not published** — they live outside `public/`. |
 | `project-history/` | Project notes. **Not published.** |
@@ -136,17 +155,31 @@ Anything outside `public/` stays private. `skills/`, `package.json` and
 
 ## GitHub repository settings
 
-Two settings are required and are **not** configurable from the repo:
+**Settings → Pages → Build and deployment → Source: GitHub Actions.** Already
+set - the Pages config is `build_type: workflow`.
 
-1. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-   Required by the `deploy-pages` job (`actions/configure-pages`).
-2. **Settings → Actions → Runners → New self-hosted runner** (Linux, x64).
-   The registration token is single-use and expires in one hour.
+### Getting a runner registration token
 
-The runner should be registered with a **runner group restricted to this
-repository**. The `deploy-server` job only triggers on `push` to `main`, never on
-`pull_request`, so a fork pull request cannot execute code on the laptop. The four
-quality gates always run on GitHub-hosted runners.
+`deploy/register-runner.sh` needs a single-use registration token (valid for one
+hour). Either:
+
+- **GitHub UI** - Settings → Actions → Runners → New self-hosted runner, pick
+  Linux + x64, copy the token from the configure step.
+- **API** -
+  ```bash
+  gh api -X POST repos/MohamedHamidou/My-website/actions/runners/registration-token --jq .token
+  ```
+
+Then on the laptop:
+
+```bash
+sudo bash ~/my-website/deploy/register-runner.sh <TOKEN>
+```
+
+The runner should be registered in a **runner group restricted to this
+repository**. The `deploy-server` job only triggers from a successful CI run on
+`main`, never from a pull request, so a fork pull request cannot execute code on
+the laptop. The four quality gates always run on GitHub-hosted runners.
 
 ---
 

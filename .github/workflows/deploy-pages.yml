@@ -1,0 +1,49 @@
+name: Deploy Pages
+
+# Triggered by a successful CI run on main, rather than by the push itself.
+#
+# This is a separate workflow from the server deploy on purpose. GitHub allows
+# only one running and one pending job per concurrency group, so a single
+# workflow containing both deploy targets would let a server deploy that is
+# waiting for an offline self-hosted runner block the Pages deploy of newer
+# commits. Independent workflows have independent concurrency groups.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'public'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
