@@ -101,9 +101,16 @@ fi
 # --- firewall ---------------------------------------------------------------
 log "Configuring firewall (SSH only, inbound HTTP stays closed)"
 if command -v ufw >/dev/null 2>&1; then
+  ufw allow 22/tcp >/dev/null 2>&1 || true
   ufw allow OpenSSH >/dev/null 2>&1 || true
-  ufw --force enable >/dev/null
-  ufw status verbose || true
+  # Never enable the firewall unless the SSH rule is actually in place,
+  # otherwise enabling it locks the operator out of the machine.
+  if ufw status | grep -q '22/tcp'; then
+    ufw --force enable >/dev/null
+    ufw status verbose || true
+  else
+    echo "install.sh: WARNING - no SSH rule found, leaving ufw untouched" >&2
+  fi
 fi
 
 # --- CI runner account ------------------------------------------------------
