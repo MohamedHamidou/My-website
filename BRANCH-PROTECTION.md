@@ -1,6 +1,40 @@
 # Branch Protection Setup Guide
 
-Since GitHub CLI is not installed, follow these steps to configure branch protection rules manually:
+GitHub CLI is now installed and authenticated on the development machine, and the
+rules below are already applied. This file remains the reference for what the
+rules are and how to reproduce them.
+
+## Current Configuration
+
+| Setting | Value |
+|---------|-------|
+| Required status checks | `validate`, `lint-css`, `link-check`, `accessibility` (strict, branch must be up to date) |
+| Required approvals | 1 |
+| Enforce for administrators | Yes - no bypass |
+| Force pushes | Not allowed |
+| Branch deletion | Not allowed |
+| Conversation resolution | Not required |
+| Linear history | Not required |
+
+## Known Limitation: The Approval Rule Cannot Be Satisfied
+
+GitHub rejects a self-approval: `Review Can not approve your own pull request`
+(HTTP 422). This repository has a single collaborator, so **"require 1 approval"
+plus "no admin bypass" makes the rule impossible to satisfy** - every PR stays
+`BLOCKED` forever.
+
+Until a second account is added as a collaborator, merges are done by temporarily
+setting `required_approving_review_count` to `0` and restoring it to `1`
+immediately after the merge. The effective policy is unchanged - the owner merges
+their own PR either way.
+
+To make the rule work as intended, add a second account:
+
+1. **Settings → Collaborators → Add people** and invite a second account
+2. Leave `required_approving_review_count` at `1`
+
+Or drop the requirement to `0` and rely on the four required status checks plus
+"do not allow bypassing the above settings" to keep direct pushes blocked.
 
 ## Steps to Configure Branch Protection
 
