@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+#
+# deploy-site - publish a release of the site and switch the live symlink.
+#
+# Installed at /usr/local/sbin/deploy-site, owned by root, mode 0755.
+# The CI runner user may invoke it through sudo (NOPASSWD, this script only).
+#
+# Usage:
+#   deploy-site --release <sha> --source <dir>   publish <dir> as <sha> and go live
+#   deploy-site --rollback                       switch back to the previous release
+#   deploy-site --status                         show current/previous release
+#
+set -euo pipefail
+
+RELEASES_DIR=/srv/my-website/releases
+CURRENT_LINK=/srv/my-website/current
+PREVIOUS_LINK=/srv/my-website/previous
+KEEP_RELEASES=5
+
+die() { echo "deploy-site: $*" >&2; exit 1; }
+
+usage() {
+  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+  exit 1
+}
+
+# Point nginx at <release>, remembering the release we are replacing.
+switch_to() {
+  local release="$1"
+  local target="$RELEASES_DIR/$release"
+
+  [[ -d "$target" ]] || die "release directory not found: $target"
+
+  # Validate the nginx config before touching the live symlink.
+  nginx -t
+
+  local old_target
+  old_target=$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)
+  if [[ -n "$old_target" && "$old_target" != "$target" ]]; then
+    ln -sfn "$old_target" "${PREVIOUS_LINK}.new"
+    mv -Tf "${PREVIOUS_LINK}.new" "$PREVIOUS_LINK"
+  fi
+
+  ln -sfn "$target" "${CURRENT_LINK}.new"
+  mv -Tf "${CURRENT_LINK}.new" "$CURRENT_LINK"
+
+  systemctl reload nginx
+
+  echo "deploy-site: live -> $release"
+}
+
+# Keep the newest N releases, never deleting the live or previous one.
+prune() {
+  local keep_current keep_previous
+  keep_current=$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)
+  keep_previous=$(readlink -f "$PREVIOUS_LINK" 2>/dev/null || true)
+
+  local dirs
+  mapfile -t dirs < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -rn | cut -d' ' -f2-)
+
+  local i
+  for ((i = KEEP_RELEASES; i < ${#dirs[@]}; i++)); do
+    local dir="${dirs[$i]}"
+    [[ "$dir" == "$keep_current" || "$dir" == "$keep_previous" ]] && continue
+    rm -rf "$dir"
+    echo "deploy-site: pruned $(basename "$dir")"
+  done
+}
+
+cmd_release() {
+  local release="" source=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --release) release="${2:-}"; shift 2 ;;
+      --source)  source="${2:-}";  shift 2 ;;
+      *) die "unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "$release" ]] || die "--release is required"
+  [[ -n "$source" ]]  || die "--source is required"
+  [[ -d "$source" ]]  || die "source directory not found: $source"
+
+  # Refuse anything that is not a plain release identifier.
+  [[ "$release" =~ ^[A-Za-z0-9._-]+$ ]] || die "unsafe release identifier: $release"
+
+  local target="$RELEASES_DIR/$release"
+  rm -rf "$target"
+  mkdir -p "$target"
+  cp -a "$source/." "$target/"
+
+  chown -R root:root "$target"
+  find "$target" -type d -exec chmod 0755 {} +
+  find "$target" -type f -exec chmod 0644 {} +
+
+  switch_to "$release"
+  prune
+}
+
+cmd_rollback() {
+  local prev
+  prev=$(readlink -f "$PREVIOUS_LINK" 2>/dev/null || true)
+  [[ -n "$prev" && -d "$prev" ]] || die "no previous release recorded"
+
+  local current
+  current=$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)
+
+  # Swap the two links so a rollback is itself reversible.
+  ln -sfn "$prev" "${CURRENT_LINK}.new"
+  mv -Tf "${CURRENT_LINK}.new" "$CURRENT_LINK"
+  if [[ -n "$current" && -d "$current" ]]; then
+    ln -sfn "$current" "${PREVIOUS_LINK}.new"
+    mv -Tf "${PREVIOUS_LINK}.new" "$PREVIOUS_LINK"
+  fi
+
+  systemctl reload nginx
+  echo "deploy-site: rolled back to $(basename "$prev")"
+}
+
+cmd_status() {
+  echo "current:  $(readlink -f "$CURRENT_LINK" 2>/dev/null || echo none)"
+  echo "previous: $(readlink -f "$PREVIOUS_LINK" 2>/dev/null || echo none)"
+  echo "releases: $(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
+  if [[ -x /usr/local/bin/site-url ]]; then
+    echo "url:      $(/usr/local/bin/site-url 2>/dev/null || echo unknown)"
+  fi
+}
+
+case "${1:-}" in
+  --release) shift; cmd_release "$@" ;;
+  --rollback) cmd_rollback ;;
+  --status) cmd_status ;;
+  *) usage ;;
+esac

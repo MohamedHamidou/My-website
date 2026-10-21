@@ -1,0 +1,15 @@
+[Unit]
+Description=Cloudflare quick tunnel exposing the local nginx site
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target nginx.service
+Wants=network-online.target
+Requires=nginx.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:80 --logfile /var/log/cloudflared.log
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
