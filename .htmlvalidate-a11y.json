@@ -1,0 +1,11 @@
+{
+  "extends": ["html-validate:recommended"],
+  "rules": {
+    "element-case": "error",
+    "attr-case": "error",
+    "heading-level": "error",
+    "no-deprecated-attr": "error",
+    "no-dup-attr": "error",
+    "no-dup-class": "error"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "my-website",
+  "version": "1.0.0",
+  "description": "Personal website served as static files from public/",
+  "scripts": {
+    "validate": "html-validate public/*.html",
+    "lint": "stylelint \"public/**/*.css\" || true",
+    "check-links": "link-checker public/index.html",
+    "check-a11y": "html-validate public/*.html --config .htmlvalidate-a11y.json",
+    "serve": "npx --yes serve public"
+  },
+  "devDependencies": {
+    "html-validate": "^8.0.0",
+    "stylelint": "^16.0.0",
+    "stylelint-config-standard": "^36.0.0",
+    "link-checker": "^1.4.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MohamedHamidou/My-website.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/MohamedHamidou/My-website/issues"
+  },
+  "homepage": "https://github.com/MohamedHamidou/My-website#readme"
+}
