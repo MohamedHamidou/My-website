@@ -1,0 +1,58 @@
+name: Deploy Server
+
+# Triggered by a successful CI run on main.
+#
+# Runs on a self-hosted runner on the Ubuntu laptop. A GitHub-hosted runner has
+# no route to the laptop's LAN address, and the network has three NAT layers
+# with a shared egress IP, so the runner has to live on the machine itself.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux]
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Check that main has not moved on
+        id: freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="${{ github.event.workflow_run.head_sha }}"
+          latest=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/main" \
+            | grep -oE '"sha": "[0-9a-f]{40}"' | head -1 | cut -d'"' -f4)
+          if [ "$latest" != "$sha" ]; then
+            echo "::notice::main is now $latest - skipping stale deploy of $sha"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish release and switch live symlink
+        if: steps.freshness.outputs.skip != 'true'
+        run: sudo /usr/local/sbin/deploy-site --release "${{ github.event.workflow_run.head_sha }}" --source "$GITHUB_WORKSPACE/public"
+
+      - name: Smoke test local nginx
+        if: steps.freshness.outputs.skip != 'true'
+        run: curl -fsS -o /dev/null -w '%{http_code}\n' http://localhost/ | grep -q '^200$'
