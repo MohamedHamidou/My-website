@@ -49,6 +49,15 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Report a skipped stale deploy
+        if: steps.freshness.outputs.skip == 'true'
+        run: |
+          echo "::warning::main has moved on since this CI run - skipping the stale deploy of ${{ github.event.workflow_run.head_sha }}. The newer CI run publishes instead."
+
+      - name: Refresh the release engine from the repository
+        if: steps.freshness.outputs.skip != 'true'
+        run: sudo /usr/local/sbin/install-deploy-site "$GITHUB_WORKSPACE/deploy/deploy-site"
+
       - name: Publish release and switch live symlink
         if: steps.freshness.outputs.skip != 'true'
         run: sudo /usr/local/sbin/deploy-site --release "${{ github.event.workflow_run.head_sha }}" --source "$GITHUB_WORKSPACE/public"

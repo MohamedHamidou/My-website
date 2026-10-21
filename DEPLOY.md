@@ -88,13 +88,15 @@ with NOPASSWD sudo for `deploy-site` alone.
 push to main
    │
    └─▶ CI  (GitHub-hosted runners)
-          validate · lint-css · link-check · accessibility
+          validate · lint-css · link-check · accessibility · test-deploy
                  │
                  ├─▶ Deploy Pages   (GitHub-hosted)  → uploads public/ to GitHub Pages
-                 └─▶ Deploy Server  (self-hosted)    → sudo deploy-site --release <sha>
+                 └─▶ Deploy Server  (self-hosted)    → sudo install-deploy-site deploy/deploy-site
+                                                            → sudo deploy-site --release <sha>
                                                             → copies public/ to releases/<sha>
                                                             → atomically swaps the `current` symlink
                                                             → nginx -t && systemctl reload nginx
+                                                            → smoke test http://localhost/ == 200
 ```
 
 The two deploy targets live in **separate workflow files** on purpose. GitHub
@@ -103,9 +105,32 @@ workflow containing both targets would let a server deploy that is waiting for
 an offline self-hosted runner block the Pages deploy of newer commits.
 
 Both deploys are triggered by `workflow_run` on a successful CI run rather than
-by the push itself, so they are gated on the same four quality checks. The
-server deploy also re-checks that `main` has not moved on before publishing, so a
-stale queued run cannot roll the site back to an older commit.
+by the push itself, so they are gated on the same quality checks.
+
+### Only `main`'s tip is ever published
+
+Before publishing, the server deploy re-reads `main` from the GitHub API and
+compares it against the commit that was tested. If `main` has moved on, the run
+is skipped with a warning rather than publishing a stale commit. The practical
+consequence: **if the newest commit on `main` fails CI, nothing deploys** — the
+site stays on the last release that passed. That is deliberate; publishing a
+commit whose successor broke the build would hide the breakage.
+
+### The release engine updates itself
+
+`deploy/deploy-site` is installed at `/usr/local/sbin/deploy-site`, and every
+deploy first refreshes it from the copy in the repository:
+
+```
+sudo install-deploy-site "$GITHUB_WORKSPACE/deploy/deploy-site"
+```
+
+`install-deploy-site` is a root-owned script that the runner may invoke through
+sudo. It syntax-checks the incoming file, refuses anything that is not the
+release engine, and installs atomically. The point is that a fix to the deploy
+tooling reaches the laptop on the next deploy, instead of waiting for a manual
+root session — the failure mode where the laptop silently kept running a
+buggy copy of the script.
 
 ### Workflow files
 
@@ -114,6 +139,20 @@ stale queued run cannot roll the site back to an older commit.
 | `.github/workflows/ci.yml` | PR + push to main | GitHub-hosted | quality gates only |
 | `.github/workflows/deploy-pages.yml` | successful CI on main | GitHub-hosted | GitHub Pages |
 | `.github/workflows/deploy-server.yml` | successful CI on main | self-hosted (laptop) | the laptop |
+
+### Tests
+
+`deploy/test-deploy-site.sh` exercises the release engine in a sandbox: the
+release paths are redirected into a temp directory and `nginx`, `systemctl` and
+`chown` are replaced with stubs, so publishing, status, rollback, argument
+validation and the installer can all be tested without root and without touching
+the live site.
+
+```bash
+bash deploy/test-deploy-site.sh
+```
+
+It runs in CI as the `test-deploy` job.
 
 ### Releasing manually
 
@@ -140,10 +179,12 @@ half-published site in front of users.
 | Path | Purpose |
 |------|---------|
 | `public/` | The publishable site. This is what nginx and GitHub Pages serve. |
-| `deploy/` | Server-side tooling: `install.sh`, `deploy-site`, `site-url`, `register-runner.sh`, nginx vhost, systemd unit. |
+| `deploy/` | Server-side tooling: `install.sh`, `deploy-site`, `install-deploy-site`, `site-url`, `register-runner.sh`, nginx vhost, systemd unit. |
 | `deploy/install.sh` | Idempotent bootstrap for the laptop. |
 | `deploy/register-runner.sh` | Installs and registers the self-hosted Actions runner. |
 | `deploy/deploy-site` | Release / rollback engine, installed at `/usr/local/sbin/deploy-site`. |
+| `deploy/install-deploy-site` | Installs `deploy-site` from the repository copy. Installed at `/usr/local/sbin/install-deploy-site`. |
+| `deploy/test-deploy-site.sh` | Sandbox regression tests for the release engine. |
 | `skills/` | Agent skill definitions. **Not published** — they live outside `public/`. |
 | `project-history/` | Project notes. **Not published.** |
 
@@ -192,5 +233,6 @@ the laptop. The four quality gates always run on GitHub-hosted runners.
 | Public URL 404 | `current` symlink dangling | `deploy-site --status`; `ls -l /srv/my-website/current` |
 | CI job stuck "waiting for runner" | Self-hosted runner offline | The runner must be running: `systemctl status actions.runner` |
 | `deploy-site` permission denied | Runner user not provisioned | `visudo -c` and check `/etc/sudoers.d/deploy-site` |
+| Deploy job fails with `unknown argument` | The laptop is running a stale `deploy-site` | `sudo install-deploy-site <repo>/deploy/deploy-site`; the deploy workflow now does this automatically |
 | Site serves old content | Browser cache | Assets are cached 7 days; hard-reload |
 | Cloudflare error 1033 | Tunnel disconnected | `systemctl restart site-tunnel` |

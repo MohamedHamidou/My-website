@@ -20,8 +20,15 @@ KEEP_RELEASES=5
 die() { echo "deploy-site: $*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
-  exit 1
+  cat <<'EOF'
+deploy-site - publish a release of the site and switch the live symlink.
+
+Usage:
+  deploy-site --release <sha> --source <dir>   publish <dir> as <sha> and go live
+  deploy-site --rollback                       switch back to the previous release
+  deploy-site --status                         show current/previous release
+EOF
+  exit "${1:-1}"
 }
 
 # Point nginx at <release>, remembering the release we are replacing.
@@ -34,8 +41,14 @@ switch_to() {
   # Validate the nginx config before touching the live symlink.
   nginx -t
 
-  local old_target
-  old_target=$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)
+  # Only a live, resolvable current symlink counts as a previous release.
+  # readlink -f canonicalises a path that does not exist, so on the very first
+  # publish it would otherwise report a bogus old target and point `previous`
+  # at the release that is about to go live.
+  local old_target=""
+  if [[ -e "$CURRENT_LINK" ]]; then
+    old_target=$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)
+  fi
   if [[ -n "$old_target" && "$old_target" != "$target" ]]; then
     ln -sfn "$old_target" "${PREVIOUS_LINK}.new"
     mv -Tf "${PREVIOUS_LINK}.new" "$PREVIOUS_LINK"
@@ -126,9 +139,14 @@ cmd_status() {
   fi
 }
 
+# Dispatch on the subcommand. Everything that is not --rollback/--status is
+# handed to cmd_release with its arguments intact - cmd_release parses
+# --release/--source itself. Do NOT shift the flags away before dispatching,
+# or the parser never sees them.
 case "${1:-}" in
-  --release) shift; cmd_release "$@" ;;
   --rollback) cmd_rollback ;;
   --status) cmd_status ;;
-  *) usage ;;
+  -h|--help) usage 0 ;;
+  "") usage 1 ;;
+  *) cmd_release "$@" ;;
 esac

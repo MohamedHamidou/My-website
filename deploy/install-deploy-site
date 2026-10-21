@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# install-deploy-site - install the deploy-site release engine from a source file.
+#
+# Installed at /usr/local/sbin/install-deploy-site, owned by root, mode 0755.
+# The CI runner user may invoke it through sudo (NOPASSWD, this script only).
+#
+# The source file is the copy tracked in the repository. Installing it from CI
+# keeps the laptop's tooling in step with the repo, so a fix to deploy-site
+# reaches the server on the next deploy instead of waiting for a manual root
+# session.
+#
+# Usage:
+#   sudo install-deploy-site <source-file>
+#
+set -euo pipefail
+
+SYSTEM_DEST=/usr/local/sbin/deploy-site
+DEST="${DEPLOY_SITE_DEST:-$SYSTEM_DEST}"
+
+die() { echo "install-deploy-site: $*" >&2; exit 1; }
+
+# Installing over the live system copy needs root. A custom destination is a
+# test override and does not.
+if [[ "$DEST" == "$SYSTEM_DEST" ]]; then
+  [[ $EUID -eq 0 ]] || die "must be run as root"
+fi
+
+SRC="${1:-}"
+[[ -n "$SRC" ]] || die "source file is required"
+[[ -f "$SRC" ]] || die "source file not found: $SRC"
+[[ -r "$SRC" ]] || die "source file is not readable: $SRC"
+
+# A broken script must never replace a working one.
+bash -n "$SRC" || die "source file is not valid bash: $SRC"
+
+# Sanity check: this has to actually be the deploy-site script.
+grep -q -- '--rollback' "$SRC" || die "source does not look like deploy-site"
+
+# Install atomically so a crash cannot leave a half-written script behind.
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+cat "$SRC" > "$TMP"
+chmod 0755 "$TMP"
+if [[ $EUID -eq 0 ]]; then
+  chown root:root "$TMP"
+fi
+mv -f "$TMP" "$DEST"
+trap - EXIT
+
+echo "install-deploy-site: installed $DEST"
