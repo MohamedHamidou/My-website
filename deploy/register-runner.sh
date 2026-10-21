@@ -53,6 +53,9 @@ log "Installing OS dependencies"
   echo "register-runner.sh: warning - installdependencies.sh reported issues, continuing"
 
 chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
+# cp -a carries the temp dir's restrictive mode onto the target; make the
+# runner directory traversable so an operator can inspect the install.
+chmod 755 "$RUNNER_DIR"
 
 # --- configure --------------------------------------------------------------
 log "Configuring runner for $REPO"
@@ -98,6 +101,18 @@ else
   echo "register-runner.sh: runner service failed to start" >&2
   journalctl -u actions.runner.my-website.service --no-pager -n 30 >&2 || true
   exit 1
+fi
+
+# --- verify -----------------------------------------------------------------
+# A running service is not the same as a runner GitHub can dispatch to, so
+# confirm the registration actually landed.
+log "Verifying registration with GitHub"
+if command -v gh >/dev/null 2>&1; then
+  gh api "repos/$REPO/actions/runners" \
+    --jq ".runners[] | \"  runner: \(.name)  status: \(.status)  busy: \(.busy)\"" \
+    2>/dev/null || echo "  (gh not authenticated on this host - skipping API check)"
+else
+  echo "  (gh not installed - skipping API check)"
 fi
 
 log "Done. Runner registered as: my-website-$(hostname -s)"
