@@ -54,8 +54,9 @@ nginx -t
 
 # --- deploy tooling ---------------------------------------------------------
 log "Installing deploy tooling"
-install -m 0755 "$SCRIPT_DIR/deploy-site" /usr/local/sbin/deploy-site
-install -m 0755 "$SCRIPT_DIR/site-url"    /usr/local/bin/site-url
+install -m 0755 "$SCRIPT_DIR/deploy-site"          /usr/local/sbin/deploy-site
+install -m 0755 "$SCRIPT_DIR/install-deploy-site"  /usr/local/sbin/install-deploy-site
+install -m 0755 "$SCRIPT_DIR/site-url"             /usr/local/bin/site-url
 
 # --- first release ----------------------------------------------------------
 if [[ -n "$PUBLISH_DIR" ]]; then
@@ -121,7 +122,9 @@ if [[ $WITH_RUNNER -eq 1 ]]; then
   fi
   mkdir -p /srv/actions-runner
   chown runner:runner /srv/actions-runner
-  printf 'runner ALL=(root) NOPASSWD: /usr/local/sbin/deploy-site\n' > /etc/sudoers.d/deploy-site
+  # The runner may run exactly two root commands: publish a release, and
+  # refresh the release engine from the copy tracked in the repository.
+  printf 'runner ALL=(root) NOPASSWD: /usr/local/sbin/deploy-site, /usr/local/sbin/install-deploy-site\n' > /etc/sudoers.d/deploy-site
   chmod 440 /etc/sudoers.d/deploy-site
   visudo -c >/dev/null
 fi
