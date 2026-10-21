@@ -3,7 +3,9 @@
 ## Your Project Info
 - **Local folder:** D:\AntiGravity\my-website
 - **GitHub repo:** https://github.com/MohamedHamidou/My-website
-- **Live website:** https://mohamedhamidou.github.io/My-website/
+- **Live website (Pages fallback):** https://mohamedhamidou.github.io/My-website/
+- **Live website (own server):** run `site-url` on the Ubuntu laptop
+- **Server:** Ubuntu laptop, 192.168.0.101, ssh user `manhipe`
 
 ---
 
@@ -61,3 +63,25 @@ git push
 
 **Problem:** Made a mistake, want to undo
 **Solution:** `git revert HEAD` (undoes last commit)
+
+---
+
+## Deploying
+
+Push to `main` and CI does the rest - it validates, then publishes to GitHub
+Pages and to the Ubuntu laptop. You do not normally run a deploy by hand.
+
+| I want to... | Command (on the laptop) |
+|--------------|-------------------------|
+| See the current public URL | `site-url` |
+| Deploy manually | `sudo /usr/local/sbin/deploy-site --release manual-$(date +%s) --source /path/to/public` |
+| Roll back to the previous release | `sudo /usr/local/sbin/deploy-site --rollback` |
+| See what is live | `sudo /usr/local/sbin/deploy-site --status` |
+| Restart the public tunnel | `sudo systemctl restart site-tunnel` |
+| Check nginx config | `sudo nginx -t && sudo systemctl reload nginx` |
+| Check the CI runner | `systemctl status actions.runner.my-website.service` |
+
+**Problem:** The public URL changed
+**Solution:** The Cloudflare quick tunnel generates a random hostname each time it
+starts. Run `site-url` for the current one. For a permanent address, put a domain
+in front of the tunnel - see DEPLOY.md.

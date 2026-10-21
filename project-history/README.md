@@ -2,11 +2,19 @@
 
 ## What We Built
 
-A simple website hosted on GitHub Pages using agent-skills for AI-assisted development.
+A static website served from a self-hosted Ubuntu laptop, with GitHub Pages kept as a parallel fallback.
 
-## Live Website
+The site has no framework and no build step - `public/` is the publishable artifact.
 
-**URL:** https://mohamedhamidou.github.io/My-website/
+## Live Websites
+
+| Where | URL | Notes |
+|-------|-----|-------|
+| Ubuntu laptop (LAN) | `http://192.168.0.101/` | nginx on the laptop |
+| Ubuntu laptop (public) | `site-url` on the laptop | Cloudflare quick tunnel - **the hostname changes on every restart** |
+| GitHub Pages (fallback) | https://mohamedhamidou.github.io/My-website/ | Deployed by CI from `public/` |
+
+To get the current public URL, run `site-url` on the laptop. See [DEPLOY.md](../DEPLOY.md) for the full setup and the reason the URL is not stable.
 
 ---
 
@@ -59,12 +67,27 @@ A simple website hosted on GitHub Pages using agent-skills for AI-assisted devel
 ```
 my-website/
   .git/                    <-- Git tracking folder
-  index.html               <-- Your website file
+  public/                  <-- The publishable site (served by nginx + Pages)
+    index.html             <-- Your website file
+  deploy/                  <-- Server tooling (bootstrap, deploy, rollback)
   project-history/         <-- This summary folder
     README.md              <-- You are here
-  skills/                  <-- Agent skills (added later)
-  AGENTS.md                <-- OpenCode config (added later)
+  skills/                  <-- Agent skills (not published)
+  AGENTS.md                <-- OpenCode config
+  DEPLOY.md                <-- Deployment guide
 ```
+
+### Step 9: Self-Hosted Deployment
+
+- Moved the site to a self-hosted Ubuntu laptop on the LAN (`192.168.0.101`)
+- Served by nginx from `/srv/my-website/current`
+- Published to the internet through a Cloudflare quick tunnel, because the network
+  has three NAT layers and port forwarding cannot work
+- GitHub Actions deploys automatically on push to `main` via a self-hosted runner
+  on the laptop, gated on the same four quality checks as the Pages deploy
+- Branch protection now requires 1 approving review. A single-owner repo cannot
+  satisfy that rule, so merges are done by temporarily relaxing the approval
+  count to 0 and restoring it immediately afterwards.
 
 ---
 
